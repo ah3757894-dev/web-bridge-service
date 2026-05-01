@@ -1,19 +1,13 @@
 {
   "version": 2,
-  "name": "web-bridge-service",
+  "name": "my-api-gateway",
   "functions": {
-    "api/relay.js": {
+    "api/index.js": {
       "memory": 128,
       "maxDuration": 60
     }
   },
   "rewrites": [
-    { "source": "/", "destination": "/api/relay.js" },
-    { "source": "/api/(.*)", "destination": "/api/relay.js" },
-    { "source": "/v1/(.*)", "destination": "/api/relay.js" },
-    { "source": "/data/(.*)", "destination": "/api/relay.js" },
-    { "source": "/cdn/(.*)", "destination": "/api/relay.js" },
-    { "source": "/static/(.*)", "destination": "/api/relay.js" }
-  ],
-  "trailingSlash": false
+    { "source": "/(.*)", "destination": "/api/index.js" }
+  ]
 }
