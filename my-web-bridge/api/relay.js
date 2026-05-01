@@ -7,73 +7,52 @@ export const config = {
   maxDuration: 60,
 };
 
-const BACKEND_BASE = (process.env.BACKEND_URL || process.env.TARGET_DOMAIN || "").replace(/\/$/, "");
+const TARGET = (process.env.TARGET_DOMAIN || "").replace(/\/$/, "");
 
-const IGNORE_HEADERS = new Set([
+const SKIP_HEADERS = new Set([
   "host", "connection", "keep-alive", "proxy-authenticate",
   "proxy-authorization", "te", "trailer", "transfer-encoding",
   "upgrade", "forwarded", "x-forwarded-host", "x-forwarded-proto",
-  "x-forwarded-port", "x-vercel-",
+  "x-forwarded-port",
 ]);
 
-function sanitizeHeaderKey(k) {
-  return k.toLowerCase().replace(/[^a-z0-9-]/g, "");
-}
-
 export default async function handler(req, res) {
-  if (!BACKEND_BASE) {
+  if (!TARGET) {
     res.statusCode = 500;
-    return res.end(JSON.stringify({ error: "misconfigured" }));
+    return res.end("Missing configuration");
   }
 
   try {
-    const targetUrl = BACKEND_BASE + req.url;
-    
+    const url = TARGET + req.url;
     const headers = {};
-    let clientOriginIp = null;
+    let ip = null;
     
-    for (const [rawKey, rawValue] of Object.entries(req.headers)) {
-      const lowerKey = rawKey.toLowerCase();
-      let shouldSkip = false;
-      for (const ig of IGNORE_HEADERS) {
-        if (lowerKey === ig || lowerKey.startsWith(ig)) {
-          shouldSkip = true;
-          break;
-        }
-      }
-      if (shouldSkip) continue;
-      
-      if (lowerKey === "x-real-ip") { clientOriginIp = rawValue; continue; }
-      if (lowerKey === "x-forwarded-for") { if (!clientOriginIp) clientOriginIp = rawValue; continue; }
-      
-      const safeKey = sanitizeHeaderKey(lowerKey);
-      const value = Array.isArray(rawValue) ? rawValue.join(", ") : rawValue;
-      headers[safeKey] = value;
+    for (const key of Object.keys(req.headers)) {
+      const k = key.toLowerCase();
+      const v = req.headers[key];
+      if (SKIP_HEADERS.has(k)) continue;
+      if (k.startsWith("x-vercel-")) continue;
+      if (k === "x-real-ip") { ip = v; continue; }
+      if (k === "x-forwarded-for") { if (!ip) ip = v; continue; }
+      headers[k] = Array.isArray(v) ? v.join(", ") : v;
     }
-    
-    headers["x-original-ip"] = clientOriginIp || "0.0.0.0";
-    headers["user-agent"] = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36";
+    if (ip) headers["x-forwarded-for"] = ip;
     
     const method = req.method;
-    const hasPayload = !["GET", "HEAD"].includes(method);
+    const hasBody = method !== "GET" && method !== "HEAD";
+    const opts = { method, headers, redirect: "manual" };
     
-    const fetchOptions = { method, headers, redirect: "manual" };
-    if (hasPayload) {
-      fetchOptions.body = Readable.toWeb(req);
-      fetchOptions.duplex = "half";
+    if (hasBody) {
+      opts.body = Readable.toWeb(req);
+      opts.duplex = "half";
     }
     
-    const upstream = await fetch(targetUrl, fetchOptions);
-    
+    const upstream = await fetch(url, opts);
     res.statusCode = upstream.status;
-    res.statusMessage = upstream.statusText;
     
-    for (const [key, value] of upstream.headers) {
-      const lower = key.toLowerCase();
-      if (lower === "transfer-encoding" || lower === "content-length") continue;
-      try {
-        res.setHeader(sanitizeHeaderKey(key), value);
-      } catch {}
+    for (const [k, v] of upstream.headers) {
+      if (k.toLowerCase() === "transfer-encoding") continue;
+      try { res.setHeader(k, v); } catch {}
     }
     
     if (upstream.body) {
@@ -82,10 +61,10 @@ export default async function handler(req, res) {
       res.end();
     }
   } catch (err) {
-    console.error("bridge error:", err.message);
+    console.error("error:", err);
     if (!res.headersSent) {
       res.statusCode = 502;
-      res.end(JSON.stringify({ status: "unavailable" }));
+      res.end("Bad Gateway");
     }
   }
 }
