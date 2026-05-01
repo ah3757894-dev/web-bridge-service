@@ -2,12 +2,12 @@
   "version": 2,
   "name": "my-api-gateway",
   "functions": {
-    "api/index.js": {
+    "api/relay.js": {
       "memory": 128,
       "maxDuration": 60
     }
   },
   "rewrites": [
-    { "source": "/(.*)", "destination": "/api/index.js" }
+    { "source": "/(.*)", "destination": "/api/relay.js" }
   ]
 }
